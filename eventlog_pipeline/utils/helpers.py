@@ -80,6 +80,84 @@ def _task_before(df, time_key_func, col_name):
     df[col_name] = counts
     return df
 
+
+def task_before_fast(df, time_key_func, col_name):
+    """
+    Vectorized equivalent of _task_before.
+
+    For each row in df, count how many *completed* rows exist with:
+      - same task
+      - same time bucket (defined by time_key_func on create/complete date)
+      - complete_date < this row's create_date
+    and store that count in df[col_name].
+
+    Idea:
+      Instead of looping over all rows and re-counting matches each time (O(n^2)),
+      we precompute, per (task, bucket), a time-ordered cumulative count of
+      completions (`comp_count`), then use `merge_asof` to look up the last
+      completion before each create_date. This turns the problem into ~O(n log n).
+    """
+    df = df.copy()
+
+    # Precompute bucket for create and complete dates separately
+    df["bucket_create"] = df["create_date"].map(time_key_func)
+    df["bucket_complete"] = df["complete_date"].map(time_key_func)
+
+    # Output series (same index as df)
+    out_counts = pd.Series(0, index=df.index, dtype="int64")
+
+    # Process each task separately to avoid multi-key merge_asof headaches
+    for task, df_task in df.groupby("task", sort=False):
+
+        # --- completion side for this task ---
+        comp = df_task.loc[df_task["complete_date"].notna(),
+                           ["complete_date", "bucket_complete"]].copy()
+        if comp.empty:
+            # no completed rows for this task -> all zeros for this task
+            continue
+
+        comp = comp.rename(columns={"bucket_complete": "bucket"})
+        # sort within each bucket by complete_date
+        comp = comp.sort_values(["bucket", "complete_date"])
+
+        # cumulative count of completions per (task is fixed here, so per bucket)
+        comp["comp_count"] = comp.groupby("bucket").cumcount() + 1
+
+        # merge_asof with by="bucket" requires sort by [bucket, complete_date]
+        comp = comp.sort_values(["bucket", "complete_date"])
+
+        # --- create side for this task ---
+        create = df_task[["create_date", "bucket_create"]].copy()
+        create = create.rename(columns={"bucket_create": "bucket"})
+        create["orig_index"] = create.index  # remember original positions
+
+        create = create.sort_values(["bucket", "create_date"])
+
+        # --- as-of join: for each (bucket, create_date) find last completion before it ---
+        merged = pd.merge_asof(
+            create,
+            comp,
+            left_on="create_date",
+            right_on="complete_date",
+            by="bucket",
+            direction="backward",
+            allow_exact_matches=False,   # strict "<", same as original mask
+        )
+
+        # comp_count = number of prior completions in that bucket for this task
+        counts_task = (
+            merged.set_index("orig_index")["comp_count"]
+            .fillna(0)
+            .astype("int64")
+        )
+
+        # write into overall output (indexes are original df indexes)
+        out_counts.loc[counts_task.index] = counts_task
+
+    df[col_name] = out_counts
+
+    return df
+
 def _case_before(df, time_key_func, col_name):
         """
         Compute number of unique cases completed before current row's create_date
@@ -101,3 +179,71 @@ def _case_before(df, time_key_func, col_name):
             
         df[col_name] = counts
         return df
+
+
+def case_before_fast(df, time_key_func, col_name):
+    """
+    For each row in df, compute how many *distinct case_id* values
+    have case_complete_date < create_date in the same time bucket
+    (bucket defined by time_key_func).
+
+    Idea:
+      Instead of scanning all rows per create_date O(n^2), we first build a per-bucket,
+      time-ordered list of case completions with a cumulative `case_count`, then use merge_asof to
+      look up the last completion before each create_date. That turns it into ~O(n log n).
+    """
+
+    # --- 1) Build per-case completion table ---
+    # Keep rows where we know when the case was completed.
+    # Assume case_complete_date is the same for a given case_id.
+    case_complete = df.loc[df["case_complete_date"].notna(),
+                           ["case_id", "case_complete_date"]].copy()
+
+    # One row per case_id, using earliest completion if duplicates exist.
+    case_complete = (
+        case_complete
+        .sort_values("case_complete_date")
+        .drop_duplicates(subset="case_id", keep="first")
+    )
+
+    # Assign bucket per case based on its completion time
+    case_complete["bucket"] = case_complete["case_complete_date"].map(time_key_func)
+
+    # --- 2) Within each bucket, sort by completion time and cumulative count cases ---
+    case_complete = case_complete.sort_values(["bucket", "case_complete_date"])
+    case_complete["case_count"] = (
+        case_complete.groupby("bucket").cumcount() + 1  # 1-based cumulative #cases
+    )
+
+    # For merge_asof, right side must be sorted by the 'on' key
+    case_complete = case_complete.sort_values("case_complete_date")
+
+    # --- 3) Build left table: one row per create_date we want to evaluate ---
+    left = df[["create_date"]].copy()
+    left["bucket"] = left["create_date"].map(time_key_func)
+    left["orig_index"] = left.index  # so we can restore original order
+
+    # merge_asof requires left_on sorted too
+    left = left.sort_values("create_date")
+
+    # --- 4) As-of join: for each create_date, last case completed before it in that bucket ---
+    merged = pd.merge_asof(
+        left,
+        case_complete,
+        left_on="create_date",
+        right_on="case_complete_date",
+        by="bucket",
+        direction="backward",          # strictly before (because of allow_exact_matches=False)
+        allow_exact_matches=False,
+    )
+
+    # case_count at that matched row = #distinct cases completed before create_date in that bucket
+    counts = (
+        merged.set_index("orig_index")["case_count"]
+        .fillna(0)
+        .astype("int64")
+        .reindex(df.index)  # back to original df row order
+    )
+
+    df[col_name] = counts
+    return df

@@ -1,6 +1,6 @@
 import pandas as pd
 import logging
-from eventlog_pipeline.utils.helpers import _task_before, _case_before
+from eventlog_pipeline.utils.helpers import _task_before, _case_before, task_before_fast, case_before_fast
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -55,15 +55,26 @@ def prior_completions(df: pd.DataFrame) -> pd.DataFrame:
     same_month = lambda x: (x.year, x.month)
     same_year = lambda x: x.year
 
-    df = _task_before(df, same_day, "task_completed_before_same_day")
-    df = _task_before(df, same_week, "task_completed_before_same_week")
-    df = _task_before(df, same_month, "task_completed_before_same_month")
-    df = _task_before(df, same_year, "task_completed_before_same_year")
+    #df = _task_before(df, same_day, "task_completed_before_same_day")
+    #df = _task_before(df, same_week, "task_completed_before_same_week")
+    #df = _task_before(df, same_month, "task_completed_before_same_month")
+    #df = _task_before(df, same_year, "task_completed_before_same_year")
 
-    df = _case_before(df, same_day, "cases_completed_before_same_day")
-    df = _case_before(df, same_week, "cases_completed_before_same_week")
-    df = _case_before(df, same_month, "cases_completed_before_same_month")
-    df = _case_before(df, same_year, "cases_completed_before_same_year")
+    df = task_before_fast(df, same_day, "task_completed_before_same_day")
+    df = task_before_fast(df, same_week, "task_completed_before_same_week")
+    df = task_before_fast(df, same_month, "task_completed_before_same_month")
+    df = task_before_fast(df, same_year, "task_completed_before_same_year")
+
+
+    #df = _case_before(df, same_day, "cases_completed_before_same_day")
+    # df = _case_before(df, same_week, "cases_completed_before_same_week")
+    # df = _case_before(df, same_month, "cases_completed_before_same_month")
+    # df = _case_before(df, same_year, "cases_completed_before_same_year")
+
+    df = case_before_fast(df, same_day, "cases_completed_before_same_day")
+    df = case_before_fast(df, same_week, "cases_completed_before_same_week")
+    df = case_before_fast(df, same_month, "cases_completed_before_same_month")
+    df = case_before_fast(df, same_year, "cases_completed_before_same_year")
     
     in_troughput_columns = [
         "task_completed_before_same_day",
