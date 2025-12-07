@@ -12,6 +12,7 @@ from eventlog_pipeline.preprocess.cleaning import clean_data
 from eventlog_pipeline.preprocess.transform import compute_durations_and_sequences, create_case_summary, prior_completions
 from eventlog_pipeline.preprocess.workload import compute_workload
 from eventlog_pipeline.preprocess.merge import merger
+from eventlog_pipeline.preprocess.missingness import introduce_missing_values
 
 
 from eventlog_pipeline.train.predictors import (
@@ -24,6 +25,56 @@ from eventlog_pipeline.train.modeling import train_quantile_regressors, train_cl
 from sklearn.utils import shuffle
 
 
+from eventlog_pipeline.preprocess.missingness import introduce_missing_values
+
+
+def step_simulate_missing(
+    merged_csv: Path,
+    outputs_dir: Path,
+    logger,
+    target_col: str = "relative_start",
+    missing_rate: float = 0.3,
+    random_state: int = 42,
+) -> Path:
+    """
+    Load the merged preprocessed dataset, introduce missing values in `target_col`
+    (avoiding first/last time points per case_id based on `timestamp`),
+    and save a new CSV + mask.
+
+    """
+    logger.info("Loading merged data for missingness simulation: %s", merged_csv)
+    df = pd.read_csv(merged_csv)
+
+    if target_col not in df.columns:
+        raise ValueError(f"Target column '{target_col}' not found in merged dataset")
+
+    logger.info(
+        "Introducing missingness in column '%s' with rate %.2f "
+        "(excluding first/last event per case_id)",
+        target_col, missing_rate
+    )
+
+    # Introduce missingness in the specified column
+    df_miss, masks = introduce_missing_values(
+        df,
+        target_cols=target_col,         # can be str or list, helper handles both
+        case_col="case_id",
+        time_col="timestamp",           # or 'complete_date' if you prefer
+        missing_rate=missing_rate,
+        random_state=random_state,
+    )
+
+    pre_dir = outputs_dir / "preprocessed"
+    pre_dir.mkdir(parents=True, exist_ok=True)
+
+    base_name = Path(merged_csv).stem  # e.g. 'sepsis_merged'
+    miss_suffix = f"miss_{target_col}_{int(missing_rate * 100)}"
+
+    out_csv = pre_dir / f"{base_name}_{miss_suffix}.csv"
+    df_miss.to_csv(out_csv, index=False)
+    logger.info("Saved dataset with induced missingness → %s", out_csv)
+
+    return out_csv
 
 
 def step_preprocess(dataset: str, outputs_dir, logger):
@@ -43,7 +94,6 @@ def step_preprocess(dataset: str, outputs_dir, logger):
 
     case_summary_df, exists_cols = create_case_summary(df)
     case_summary_df.to_csv(pre_dir / f"{dataset}_case_summary.csv", index=False)
-
     merged, label_encoder = merger(
         df, queue_df, progress_df, case_summary_df
     )
@@ -249,6 +299,8 @@ def parse_args():
     ap.add_argument("--sequence", action="store_true", help="Train start/complete sequence models")
     ap.add_argument("--duration", action="store_true", help="Train duration classifiers and regressors")
     ap.add_argument("--verbose", action="store_true", help="Verbose console logs")
+    ap.add_argument("--simulate-missing", action="store_true",
+                    help="After preprocessing, create a version with induced missing values.")
     return ap.parse_args()
 
 def main():
@@ -264,6 +316,16 @@ def main():
     
     if args.preprocess:
         merged_csv_path = step_preprocess(dataset, output_root, logger)
+
+        if args.simulate_missing:
+            step_simulate_missing(
+                merged_csv_path,
+                output_root,
+                logger,
+                target_col='start_date',
+                missing_rate=0.2,
+                random_state=42,
+            )
     
     #Needs a big refactor later
     if args.sequence or args.duration:
