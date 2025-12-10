@@ -12,7 +12,7 @@ from eventlog_pipeline.preprocess.cleaning import clean_data
 from eventlog_pipeline.preprocess.transform import compute_durations_and_sequences, create_case_summary, prior_completions
 from eventlog_pipeline.preprocess.workload import compute_workload
 from eventlog_pipeline.preprocess.merge import merger
-
+from eventlog_pipeline.utils.helpers import build_duration_classes_quantiles
 
 from eventlog_pipeline.train.predictors import (
     build_sequence_predictors,
@@ -22,7 +22,6 @@ from eventlog_pipeline.train.predictors import (
 from eventlog_pipeline.train.modeling import train_quantile_regressors, train_classifier_model
 
 from sklearn.utils import shuffle
-
 
 
 
@@ -130,105 +129,143 @@ def step_train_sequence(merged_csv, dataset, outputs_dir, logger):
 
     case_seq_pred.to_csv(outputs_dir / "preprocessed" / f"{dataset}_case_seq_pred.csv", index=False)
     logger.info("Saved case sequence predictions → %s", outputs_dir / "preprocessed" / f"{dataset}_case_seq_pred.csv")
-
+def classify_binary_duration(v: float, zero_threshold: float = 0.0) -> int:
+    """Zero vs non zero duration."""
+    return 0 if v <= zero_threshold else 1
 
 def step_train_duration(merged_csv, dataset, outputs_dir, logger):
 
-    logger.info("Loading merged data for duration models: %s", merged_csv)     
+    logger.info("Loading merged data for duration models: %s", merged_csv)
     merged = pd.read_csv(merged_csv)
 
+    # ensure duration_sec exists as raw seconds
     if "duration_sec" not in merged.columns:
-        merged['duration'] = pd.to_timedelta(merged['duration'])
-        merged['duration_sec'] = merged['duration'].dt.total_seconds().replace(0, 1)
+        merged["duration"] = pd.to_timedelta(merged["duration"])
+        merged["duration_sec"] = merged["duration"].dt.total_seconds().fillna(0)
 
-    #less than 6 months tasks
-    merged = merged[merged['duration_sec'] < 1.577e+7 ].copy()
+    # less than 6 months tasks
+    merged = merged[merged["duration_sec"] < 1.577e7].copy()
 
-    # Split by unique case IDs
-    case_ids = shuffle(merged['case_id'].drop_duplicates(), random_state=42)
+    # split by unique case IDs
+    case_ids = shuffle(merged["case_id"].drop_duplicates(), random_state=42)
     num_total = len(case_ids)
     size_25pct = int(0.25 * num_total)
+
     case_ids_bin_multi = case_ids.iloc[:size_25pct]
     case_ids_task_duration = case_ids.iloc[size_25pct:]
-    df_bin_multi = merged[merged['case_id'].isin(case_ids_bin_multi)].copy()
-    df_task_duration = merged[merged['case_id'].isin(case_ids_task_duration)].copy()
 
-    # Normalization (#Add total duration if duration of a case is important)
-    for col in ["duration_sec"]:
-        for df in [df_bin_multi, df_task_duration]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-                df[col] = np.log1p(np.maximum(df[col], 0))
+    df_bin_multi = merged[merged["case_id"].isin(case_ids_bin_multi)].copy()
+    df_task_duration = merged[merged["case_id"].isin(case_ids_task_duration)].copy()
+
+    # duration preprocessing: keep raw seconds and add log space for regression
+    for df in [df_bin_multi, df_task_duration]:
+        if "duration_sec" in df.columns:
+            df["duration_sec"] = pd.to_numeric(df["duration_sec"], errors="coerce").fillna(0)
+            df["log_duration_sec"] = np.log1p(np.maximum(df["duration_sec"], 0))
 
     col_groups = joblib.load(merged_csv.parent / f"{dataset}_column_groups.joblib")
-    in_queue_cols    = [c for c in col_groups["in_queue"] if c in merged.columns]
-    in_progress_cols = [c for c in col_groups["in_progress"] if c in merged.columns]
-    exists_cols      = [c for c in col_groups["exists"] if c in merged.columns]
+    in_queue_cols      = [c for c in col_groups["in_queue"]      if c in merged.columns]
+    in_progress_cols   = [c for c in col_groups["in_progress"]   if c in merged.columns]
+    exists_cols        = [c for c in col_groups["exists"]        if c in merged.columns]
     in_throughput_cols = [c for c in col_groups["in_throughput"] if c in merged.columns]
-    
-    
-    ducl_predictors = build_duration_class_predictors(in_progress_cols, in_queue_cols, exists_cols, in_throughput_cols)
-    du_predictors   = build_duration_regression_predictors(in_progress_cols, in_queue_cols, exists_cols, in_throughput_cols)
+
+    ducl_predictors = build_duration_class_predictors(
+        in_progress_cols, in_queue_cols, exists_cols, in_throughput_cols
+    )
+    du_predictors = build_duration_regression_predictors(
+        in_progress_cols, in_queue_cols, exists_cols, in_throughput_cols
+    )
 
     models_dir = outputs_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    # Label generation
-    
-    def classify_binary_duration(v): return 0 if v == 0 else 1
-    
-    #I started from 1 since I need zero for zero duration
-    def classify_non_zero_duration(v):
-        if v <= 1: return 1
-        elif v <= 2: return 2
-        elif v <= 4: return 3
-        elif v <= 8: return 4
-        else: return 5
+    # label generation using helpers (quantile based classes)
+    logger.info("Building duration classes from quantiles")
 
-    df_bin_multi["binary_duration_class"] = df_bin_multi["duration_sec"].apply(classify_binary_duration)
-    df_bin_multi["multi_duration_class"]  = df_bin_multi["duration_sec"].apply(
-        lambda x: classify_non_zero_duration(x) if x > 0 else np.nan
+    # binary: zero vs non zero on raw seconds
+    df_bin_multi["binary_duration_class"] = df_bin_multi["duration_sec"].apply(
+        classify_binary_duration
     )
-    print(f"Duration class distribution (binary):\n{df_bin_multi['binary_duration_class'].value_counts()}")
-    print(f"Duration class distribution (multi):\n{df_bin_multi['multi_duration_class'].value_counts()}")
-    
-    
-    # Train classifiers
-    logger.info("Training duration classifiers...")
-    
-    if len(df_bin_multi['binary_duration_class'].unique()) == 2:
+
+    # multi class: quantiles on non zero raw durations
+    multi_labels, bin_edges = build_duration_classes_quantiles(
+        df_bin_multi["duration_sec"],
+        n_bins=5,
+        zero_threshold=0.0,
+    )
+    df_bin_multi["multi_duration_class"] = multi_labels
+
+    logger.info("Duration class bin edges (seconds): %s", bin_edges)
+
+    # persist bin edges for later inference with assign_duration_class_from_edges
+    joblib.dump(
+        {"bin_edges": bin_edges},
+        models_dir / f"{dataset}_duration_bins.joblib",
+    )
+
+    print("Duration class distribution (binary):")
+    print(df_bin_multi["binary_duration_class"].value_counts())
+    print("Duration class distribution (multi):")
+    print(df_bin_multi["multi_duration_class"].value_counts())
+
+    # train classifiers
+    logger.info("Training duration classifiers")
+
+    if len(df_bin_multi["binary_duration_class"].unique()) == 2:
         bin_model, bin_scaler, bin_le = train_classifier_model(
-            df_bin_multi, dataset, ducl_predictors, "binary_duration_class",
-            out_dir=models_dir / "duration_binary"
+            df_bin_multi,
+            dataset,
+            ducl_predictors,
+            "binary_duration_class",
+            out_dir=models_dir / "duration_binary",
         )
         X_all_bin = bin_scaler.transform(df_task_duration[ducl_predictors])
-        df_task_duration["binary_pred"] = bin_le.inverse_transform(bin_model.predict(X_all_bin).astype(int))
+        df_task_duration["binary_pred"] = bin_le.inverse_transform(
+            bin_model.predict(X_all_bin).astype(int)
+        )
     else:
-        logger.warning("Skipping binary duration classifier training due to insufficient class variety.")
+        logger.warning(
+            "Skipping binary duration classifier training due to insufficient class variety."
+        )
         df_task_duration["binary_pred"] = 1
-    non_zero = df_bin_multi.query("binary_duration_class == 1")
-    multi_model, multi_scaler, multi_le = train_classifier_model(
-        non_zero, dataset, ducl_predictors, "multi_duration_class",
-        out_dir=models_dir / "duration_multi"
-    )
 
-    # Classifiers
-    non_zero_mask = df_task_duration["binary_pred"] == 1
-    X_all_multi = multi_scaler.transform(df_task_duration.loc[non_zero_mask, ducl_predictors])
-    df_task_duration.loc[non_zero_mask, "multi_pred"] = multi_le.inverse_transform(multi_model.predict(X_all_multi).astype(int))
-    df_task_duration.loc[~non_zero_mask, "multi_pred"] = 0
+    # train multi class only on non zero durations
+    non_zero = df_bin_multi.query("binary_duration_class == 1")
+    if non_zero["multi_duration_class"].nunique() > 1:
+        multi_model, multi_scaler, multi_le = train_classifier_model(
+            non_zero,
+            dataset,
+            ducl_predictors,
+            "multi_duration_class",
+            out_dir=models_dir / "duration_multi",
+        )
+
+        # classifier inference
+        non_zero_mask = df_task_duration["binary_pred"] == 1
+        X_all_multi = multi_scaler.transform(
+            df_task_duration.loc[non_zero_mask, ducl_predictors]
+        )
+        df_task_duration.loc[non_zero_mask, "multi_pred"] = multi_le.inverse_transform(
+            multi_model.predict(X_all_multi).astype(int)
+        )
+        df_task_duration.loc[~non_zero_mask, "multi_pred"] = 0
+    else:
+        logger.warning(
+            "Skipping multi duration classifier training due to insufficient class variety."
+        )
+        df_task_duration["multi_pred"] = 0
+
     df_task_duration["predicted_duration_class"] = df_task_duration["multi_pred"].astype(int)
 
-
-    # Train duration regressors
-    logger.info("Training task duration quantile regressor...")
+    # train duration regressors on log duration
+    logger.info("Training task duration quantile regressor on log duration")
     task_models, task_scaler, task_features, task_metrics = train_quantile_regressors(
-        df_task_duration[[*du_predictors, "duration_sec"]],
-         dataset,
+        df_task_duration[[*du_predictors, "log_duration_sec"]],
+        dataset,
         du_predictors,
-        label="duration_sec",
+        label="log_duration_sec",
         out_dir=models_dir / "task_duration",
-        quantiles=(0.5, 0.6)
+        quantiles=(0.5, 0.6),
     )
 
     # X_task = task_scaler.transform(merged[task_features])

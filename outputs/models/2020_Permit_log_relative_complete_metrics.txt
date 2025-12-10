@@ -1,0 +1,11 @@
+Dataset: 2020_Permit_log
+Label: relative_complete
+
+Quantile 0.5:
+  MSE: 0.0226
+  MAE: 0.0933
+
+Quantile 0.6:
+  MSE: 0.0245
+  MAE: 0.0953
+

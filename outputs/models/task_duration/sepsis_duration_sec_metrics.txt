@@ -1,0 +1,11 @@
+Dataset: sepsis
+Label: duration_sec
+
+Quantile 0.5:
+  MSE: 46871.9563
+  MAE: 30.8117
+
+Quantile 0.6:
+  MSE: 39567.4893
+  MAE: 30.1598
+

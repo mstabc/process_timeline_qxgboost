@@ -7,8 +7,6 @@ from pm4py.objects.conversion.log import converter as log_converter
 
 
 
-
-
 def _read_xes(p: Path) -> pd.DataFrame:
     log = xes_importer.apply(str(p))
     df = log_converter.apply(log, variant=log_converter.Variants.TO_DATA_FRAME)

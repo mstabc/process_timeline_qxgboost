@@ -1,0 +1,11 @@
+Dataset: 2020_Permit_log
+Label: duration_sec
+
+Quantile 0.5:
+  MSE: 107754.5869
+  MAE: 113.2851
+
+Quantile 0.6:
+  MSE: 97366.0442
+  MAE: 113.2256
+

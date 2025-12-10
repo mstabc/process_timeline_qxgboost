@@ -1,0 +1,18 @@
+Dataset: sepsis
+Label: multi_duration_class
+
+Accuracy: 0.5699
+
+Confusion matrix (rows: true, columns: predicted):
+[[141   1   1   3  57]
+ [  1   1   2   4   0]
+ [  0   1  23  10   9]
+ [ 33   0  18  39  26]
+ [ 53   2   6  16 118]]
+
+Label encoding:
+  0: 1
+  1: 2
+  2: 3
+  3: 4
+  4: 5

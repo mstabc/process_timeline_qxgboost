@@ -101,6 +101,16 @@ def train_quantile_regressors(
     joblib.dump(list(X.columns), out_dir / f"{dataset}_{label}_features.joblib")
     with open(out_dir / f"{dataset}_{label}_metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
+    txt_path = out_dir / f"{dataset}_{label}_metrics.txt"
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(f"Dataset: {dataset}\n")
+        f.write(f"Label: {label}\n\n")
+        for q, m in metrics.items():
+            f.write(
+                f"Quantile {q}:\n"
+                f"  MSE: {m['MSE']:.4f}\n"
+                f"  MAE: {m['MAE']:.4f}\n\n"
+            )
 
     print(f"[INFO] Saved quantile regression plots → {plots_dir}")
     return models, scaler, list(X.columns), metrics
@@ -167,7 +177,16 @@ def train_classifier_model(
     
     cm = confusion_matrix(y_test_enc, y_pred_enc)
     print(f"{label} classifier confusion matrix:\n{cm}")
-    
+    txt_path = out_dir / f"{dataset}_{label}_classifier_metrics.txt"
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(f"Dataset: {dataset}\n")
+        f.write(f"Label: {label}\n\n")
+        f.write(f"Accuracy: {acc:.4f}\n\n")
+        f.write("Confusion matrix (rows: true, columns: predicted):\n")
+        f.write(np.array2string(cm))
+        f.write("\n\nLabel encoding:\n")
+        for idx, cls in enumerate(le.classes_):
+            f.write(f"  {idx}: {cls}\n")
     
     joblib.dump(model, out_dir / f"{dataset} - {label}_classifier.joblib")
     joblib.dump(scaler, out_dir / f"{dataset} - {label}_classifier_scaler.joblib")

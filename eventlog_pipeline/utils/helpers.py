@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Optional, Iterable
 import os
 from pathlib import Path
-
+import numpy as np
 
 def drop_cols(df: pd.DataFrame, cols: list[str]) -> None:
     for c in cols:
@@ -247,3 +247,62 @@ def case_before_fast(df, time_key_func, col_name):
 
     df[col_name] = counts
     return df
+
+
+def build_duration_classes_quantiles(
+    durations: pd.Series,
+    n_bins: int = 5,
+    zero_threshold: float = 0.0,
+):
+    """
+    Build duration classes using quantiles on non-zero values.
+
+    Returns:
+      labels: pd.Series of int (0 for zero, 1..n_bins for non-zero)
+      bin_edges_raw: np.ndarray of bin edges in original seconds
+    """
+    durations = pd.to_numeric(durations, errors="coerce").fillna(0)
+    zero_mask = durations <= zero_threshold
+    non_zero = durations[~zero_mask]
+
+    if non_zero.empty:
+        return pd.Series(0, index=durations.index, dtype=int), np.array([])
+
+    # Work in log-space for smoother bins
+    log_non_zero = np.log1p(non_zero)
+
+    # Quantile edges in log-space
+    q = np.linspace(0.0, 1.0, n_bins + 1)
+    log_edges = np.quantile(log_non_zero, q)
+
+    # Ensure strictly increasing edges to avoid cut() issues
+    log_edges = np.unique(log_edges)
+    if len(log_edges) - 1 < n_bins:
+        # If not enough unique edges (e.g., many ties), reduce bin count
+        n_bins = len(log_edges) - 1
+
+    # Cut in log-space
+    labels_non_zero = pd.cut(
+        log_non_zero,
+        bins=log_edges,
+        labels=range(1, n_bins + 1),
+        include_lowest=True,
+    ).astype(int)
+
+    labels = pd.Series(0, index=durations.index, dtype=int)
+    labels.loc[~zero_mask] = labels_non_zero
+
+    # For interpretability, map bin edges back to seconds
+    bin_edges_raw = np.expm1(log_edges)
+
+    return labels, bin_edges_raw
+
+
+def assign_duration_class_from_edges(sec: float, edges: np.ndarray) -> int:
+    if sec <= 0:
+        return 0
+    log_sec = np.log1p(sec)
+    log_edges = np.log1p(edges)
+    # bins: 1..n_bins
+    bin_idx = np.digitize([log_sec], log_edges[1:-1], right=True)[0] + 1
+    return int(bin_idx)
