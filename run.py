@@ -12,12 +12,8 @@ from eventlog_pipeline.preprocess.cleaning import clean_data
 from eventlog_pipeline.preprocess.transform import compute_durations_and_sequences, create_case_summary, prior_completions
 from eventlog_pipeline.preprocess.workload import compute_workload
 from eventlog_pipeline.preprocess.merge import merger
-<<<<<<< HEAD
 from eventlog_pipeline.utils.helpers import build_duration_classes_quantiles
-=======
 from eventlog_pipeline.preprocess.missingness import introduce_missing_values
-
->>>>>>> 264fffdfeacc4b8742345409df87bd3f7fa032d3
 
 from eventlog_pipeline.train.predictors import (
     build_sequence_predictors,
@@ -364,7 +360,7 @@ def main():
                 output_root,
                 logger,
                 target_col='start_date',
-                missing_rate=0.2,
+                missing_rate=0.15,
                 random_state=42,
             )
     
