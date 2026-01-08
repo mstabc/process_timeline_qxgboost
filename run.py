@@ -360,7 +360,7 @@ def main():
                 output_root,
                 logger,
                 target_col='start_date',
-                missing_rate=0.2,
+                missing_rate=0.15,
                 random_state=42,
             )
     
