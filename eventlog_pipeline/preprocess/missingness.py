@@ -113,5 +113,5 @@ def introduce_missing_values(
     for col, m in masks_local.items():
         m.index = original_index
         masks[col] = m.sort_index()
-
+    
     return df_out, masks

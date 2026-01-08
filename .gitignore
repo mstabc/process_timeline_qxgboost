@@ -5,3 +5,7 @@
 *.model
 *.png
 *.json
+__pycache__/
+*.pyc
+*.txt
+

@@ -12,12 +12,8 @@ from eventlog_pipeline.preprocess.cleaning import clean_data
 from eventlog_pipeline.preprocess.transform import compute_durations_and_sequences, create_case_summary, prior_completions
 from eventlog_pipeline.preprocess.workload import compute_workload
 from eventlog_pipeline.preprocess.merge import merger
-<<<<<<< HEAD
 from eventlog_pipeline.utils.helpers import build_duration_classes_quantiles
-=======
 from eventlog_pipeline.preprocess.missingness import introduce_missing_values
-
->>>>>>> 264fffdfeacc4b8742345409df87bd3f7fa032d3
 
 from eventlog_pipeline.train.predictors import (
     build_sequence_predictors,
@@ -381,8 +377,8 @@ def main():
         if args.duration:
             step_train_duration(merged_csv_path, dataset, output_root, logger)
 
-    if not any([args.preprocess, args.sequence, args.duration]):
-        logger.warning("Nothing to do: pass --preprocess, --sequence, or --duration")
+    if not any([args.preprocess, args.simulate_missing, args.sequence, args.duration]):
+        logger.warning("Nothing to do: pass --preprocess, --simulate_missing, --sequence, or --duration")
     else:
         logger.info("All requested stages completed.")
 
