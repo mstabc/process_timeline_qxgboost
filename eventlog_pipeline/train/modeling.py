@@ -32,7 +32,7 @@ def train_quantile_regressors(
     predictors: List[str],
     label: str,
     out_dir: Path,
-    quantiles=(0.5, 0.6),
+    quantiles=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
 ) -> Tuple[Dict[float, "XGBRegressor"], StandardScaler, List[str], dict]:
 
 

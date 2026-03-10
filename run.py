@@ -21,6 +21,12 @@ from eventlog_pipeline.train.predictors import (
     build_duration_regression_predictors,
 )
 from eventlog_pipeline.train.modeling import train_quantile_regressors, train_classifier_model
+from eventlog_pipeline.train.plotting import (
+    plot_prediction_intervals_candlestick,
+    plot_interval_width_histogram,
+    compute_quantile_interval_report,
+    save_quantile_interval_report,
+)
 
 from sklearn.utils import shuffle
 
@@ -153,12 +159,12 @@ def step_train_sequence(merged_csv, dataset, outputs_dir, logger):
     ### Here we train two separate models for start and complete sequences
     start_models, start_scaler, start_features, start_metrics = train_quantile_regressors(
         case_seq[[*seq_predictors,"relative_start"]].dropna(subset=["relative_start"]), dataset,
-        seq_predictors, label="relative_start", out_dir=models_dir, quantiles=(0.5, 0.6)
+        seq_predictors, label="relative_start", out_dir=models_dir, quantiles=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
     )
     
     comp_models, comp_scaler, comp_features, comp_metrics = train_quantile_regressors(
         case_seq[[*seq_predictors,"relative_complete"]].dropna(subset=["relative_complete"]), dataset,
-        seq_predictors, label="relative_complete", out_dir=models_dir, quantiles=(0.5, 0.6)
+        seq_predictors, label="relative_complete", out_dir=models_dir, quantiles=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
     )
 
     #  Predict on the held-out set so that duration models can use these predictions
@@ -179,7 +185,7 @@ def step_train_sequence(merged_csv, dataset, outputs_dir, logger):
 
     case_seq_pred.to_csv(outputs_dir / "preprocessed" / f"{dataset}_case_seq_pred.csv", index=False)
     logger.info("Saved case sequence predictions → %s", outputs_dir / "preprocessed" / f"{dataset}_case_seq_pred.csv")
-def classify_binary_duration(v: float, zero_threshold: float = 0.0) -> int:
+def classify_binary_duration(v: float, zero_threshold: float = 1) -> int:
     """Zero vs non zero duration."""
     return 0 if v <= zero_threshold else 1
 
@@ -315,7 +321,51 @@ def step_train_duration(merged_csv, dataset, outputs_dir, logger):
         du_predictors,
         label="log_duration_sec",
         out_dir=models_dir / "task_duration",
-        quantiles=(0.5, 0.6),
+        quantiles=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
+    )
+
+    # Quantile interval visuals + coverage report (based on duration predictions)
+    X_all = task_scaler.transform(df_task_duration[task_features])
+    pred_log = {q: model.predict(X_all) for q, model in task_models.items()}
+
+    # Convert log-seconds to hours for readable plots and reports
+    y_true_hours = pd.to_numeric(df_task_duration["duration_sec"], errors="coerce") / 3600.0
+    pred_hours = {q: np.expm1(vals) / 3600.0 for q, vals in pred_log.items()}
+
+    interval_dir = outputs_dir / "reports" / "quantile_intervals"
+    interval_dir.mkdir(parents=True, exist_ok=True)
+
+    n_samples = int(len(y_true_hours))
+    max_points = min(300, max(50, int(n_samples * 0.05)))
+
+    plot_prediction_intervals_candlestick(
+        y_true_hours,
+        pred_hours,
+        quantiles=sorted(pred_hours.keys()),
+        max_points=max_points,
+        title=f"{dataset} Duration Quantile Intervals (Hours)",
+        out_path=interval_dir / f"{dataset}_duration_candlestick_q10_q90.png",
+    )
+
+    plot_interval_width_histogram(
+        y_true_hours,
+        pred_hours,
+        q_low=0.1,
+        q_high=0.9,
+        title=f"{dataset} Interval Widths in Hours",
+        out_path=interval_dir / f"{dataset}_duration_interval_widths_q10_q90.png",
+    )
+
+    report = compute_quantile_interval_report(
+        y_true_hours,
+        pred_hours,
+        interval_pairs=[(0.1, 0.9), (0.2, 0.8), (0.3, 0.7), (0.4, 0.6), (0.5, 0.8)],
+        quantile_checks=sorted(pred_hours.keys()),
+        unit="hours",
+    )
+    save_quantile_interval_report(
+        report,
+        interval_dir / f"{dataset}_duration_quantile_interval_report.json",
     )
 
     # X_task = task_scaler.transform(merged[task_features])
