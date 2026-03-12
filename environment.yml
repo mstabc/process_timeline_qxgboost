@@ -1,35 +1,14 @@
 name: eventlogrepair
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
 dependencies:
   - python=3.12
   - pip
   - numpy=1.26.4
-  - scipy=1.14.0
   - pandas=2.2.2
-  - seaborn=0.13.2
-  - matplotlib=3.9.1
-  - h5py=3.12.1
-  - sympy=1.13.0
   - scikit-learn=1.5.1
-  - networkx=3.3
-  - tqdm=4.66.5
-  - jinja2=3.1.4
-  - fsspec=2024.6.1
-  - filelock=3.11.0
-  - pytorch::pytorch=2.4.1
-  - pytorch::torchvision
-  - pytorch::torchaudio
-  - nvidia::cuda-toolkit=12.6
+  - matplotlib=3.9.1
+  - seaborn=0.13.2
   - pip:
-      - pypots==0.18
-      - transformers==4.56.2
-      - tensorboard==2.19.0
-      - pyarrow==17.0.0
-      - pygrinder==0.7
-      - benchpots==0.4
-      - ai4ts==0.0.3
       - pm4py
       - xgboost

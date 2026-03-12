@@ -2,8 +2,8 @@ import logging
 from pathlib import Path
 
 def setup_logger(log_dir: Path , verbose: bool = True):
-    
-    
+    log_dir.mkdir(parents=True, exist_ok=True)
+
     logger = logging.getLogger("repaireventlog")
     logger.setLevel(logging.DEBUG)
     logger.handlers.clear()

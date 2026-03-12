@@ -1,51 +1,59 @@
+# Process Timeline Pipeline
+
+This repository contains an event-log pipeline for:
+- preprocessing process-mining datasets,
+- sequence prediction (`relative_start`, `relative_complete`),
+- duration class prediction (`binary_duration_class`, `multi_duration_class`),
+- duration quantile regression (task duration).
+
+Imputation and missingness simulation components were removed.
+
+## Environment
+
+```bash
 conda env create -f environment.yml
 conda activate eventlogrepair
+```
 
+## Data Layout
 
+Put each dataset under:
 
-# Preprocess only (XES-first; reads DATA_DIR/<dataset>/*.xes)
-python run.py --dataset <dataset_name> --preprocess
-python run.py --dataset 2020_Permit_log --preprocess
+```text
+data/<dataset_name>/
+```
 
-python run.py --dataset 2012_A --preprocess --simulate-missing
-python run.py --dataset 2017_O --preprocess --simulate-missing
-python run.py --dataset 2020_Domestic_declarations --preprocess --simulate-missing
-python run.py --dataset 2020_International_declarations --preprocess --simulate-missing
-python run.py --dataset 2020_Prepaid_travel_cost --preprocess --simulate-missing
-python run.py --dataset 2020_Request_for_payment --preprocess --simulate-missing
-python run.py --dataset 2020_Request_for_payment --preprocess --simulate-missing
-python run.py --dataset roadtraffic --preprocess --simulate-missing
-python run.py --dataset 2020_Permit_log  --preprocess --simulate-missing
-python run.py --dataset sepsis --preprocess --simulate-missing
-python run.py --dataset hospital_log --preprocess
+Supported formats inside each dataset folder:
+- `.xes` (preferred),
+- `.csv`,
+- `.xlsx` / `.xls`.
 
+## Run
 
+Preprocess:
 
-# Train sequence models (start/complete quantiles)
-python run.py --dataset <dataset_name> --sequence
-python run.py --dataset 2012_A --sequence
-python run.py --dataset 2017_O --sequence
-python run.py --dataset 2020_Domestic_declarations --sequence
-python run.py --dataset 2020_International_declarations --sequence
-python run.py --dataset 2020_Prepaid_travel_cost --sequence
-python run.py --dataset 2020_Request_for_payment --sequence
-python run.py --dataset roadtraffic --sequence
+```bash
+python run.py --dataset sepsis --preprocess
+```
+
+Train sequence models:
+
+```bash
 python run.py --dataset sepsis --sequence
-python run.py --dataset 2020_Permit_log --sequence
+```
 
+Train duration classifiers + quantile regression:
 
-# Train duration models (start/complete quantiles)
-python run.py --dataset <dataset_name> --duration
-python run.py --dataset 2012_A --duration
-python run.py --dataset 2017_O --duration
-python run.py --dataset 2020_Domestic_declarations --duration
-python run.py --dataset 2020_International_declarations --duration
-python run.py --dataset 2020_Prepaid_travel_cost --duration
-python run.py --dataset 2020_Request_for_payment --duration
-python run.py --dataset roadtraffic --duration
+```bash
 python run.py --dataset sepsis --duration
-python run.py --dataset 2020_Permit_log --duration
+```
 
+Run full flow:
 
+```bash
+python run.py --dataset sepsis --preprocess --sequence --duration
+```
 
-# Data Imputation
+## Outputs
+
+Generated outputs are written under `outputs/` and ignored by Git.

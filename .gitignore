@@ -1,15 +1,19 @@
-*.xes
-*.csv
+__pycache__/
+*.py[cod]
+
+.ipynb_checkpoints/
+*.ipynb
+*txt
+
+.venv/
+venv/
+
 *.log
+
+# Artifacts
+outputs/
+pypots_outputs/
+data/
 *.joblib
 *.model
-*.png
-*.json
-__pycache__/
-*.pyc
-*.txt
-*.pyc
-*.ipynb
-*pypots
-*.txt
 
