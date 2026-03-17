@@ -53,7 +53,3 @@ Run full flow:
 ```bash
 python run.py --dataset sepsis --preprocess --sequence --duration
 ```
-
-## Outputs
-
-Generated outputs are written under `outputs/` and ignored by Git.
